@@ -1,0 +1,382 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+  <h1>Welcome, {{ user['username'] }}</h1>
+  <p>
+    Role: <span class="chip">
+      {{ 'Teacher' if user['role'] == 'lehrer' else ('Adult' if user['role'] == 'erwachsene' else 'Student') }}
+    </span>
+  </p>
+
+  {% if user['role'] == 'lehrer' %}
+    <h2>Add student</h2>
+    <p>Only existing accounts can be assigned. Enter the exact student username.</p>
+    <form method="post" action="{{ url_for('add_student') }}">
+      <label for="new_student_username">Username</label>
+      <input id="new_student_username" name="username" required minlength="3" />
+
+      <div class="row" style="margin-top: 12px">
+        <button type="submit" class="secondary">Assign student</button>
+      </div>
+    </form>
+
+    <hr />
+
+    <h2>Student list</h2>
+    <p>Open <strong>+Points</strong> and choose an action (+1 or -1).</p>
+    {% if students %}
+        <table>
+          <thead>
+            <tr>
+              <th>Student</th>
+              <th>Points</th>
+              <th>Action</th>
+              <th>Remove</th>
+            </tr>
+          </thead>
+        <tbody>
+          {% for s in students %}
+            <tr>
+              <td>{{ s['username'] }}</td>
+              <td>{{ s['points'] }}</td>
+              <td>
+                <button
+                  type="button"
+                  class="secondary open-points"
+                  data-student-id="{{ s['id'] }}"
+                  data-student-name="{{ s['username'] }}"
+                >+Points</button>
+              </td>
+              <td>
+                <form
+                  method="post"
+                  action="{{ url_for('remove_student', student_id=s['id']) }}"
+                  class="remove-student-form"
+                  onsubmit="return confirm('Remove {{ s['username'] }} from your list?');"
+                >
+                  <button type="submit" class="secondary" style="background: #b91c1c">Remove student</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>No students assigned yet.</p>
+    {% endif %}
+
+    <hr />
+
+    <h2>Points history</h2>
+    <form
+      method="post"
+      action="{{ url_for('clear_history') }}"
+      onsubmit="return confirm('Clear all point history entries assigned by you?');"
+      style="margin-bottom: 8px;"
+    >
+      <button type="submit" class="secondary">Clear history</button>
+      <span style="font-size: 12px; margin-left: 8px; opacity: 0.85;">(works only from 127.0.0.1)</span>
+    </form>
+    {% if points_history %}
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Student</th>
+            <th>Teacher</th>
+            <th>Action</th>
+            <th>Change</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in points_history %}
+            <tr>
+              <td>{{ item['created_at'] }}</td>
+              <td>{{ item['student_name'] }}</td>
+              <td>{{ item['teacher_name'] }}</td>
+              <td>{{ item['action_label'] }}</td>
+              <td>{{ item['points_delta'] }}</td>
+              <td>{{ item['points_after'] }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>No point history yet.</p>
+    {% endif %}
+
+    <dialog id="pointsDialog">
+      <form id="pointsForm" method="post" class="points-form" style="margin: 0;">
+        <input type="hidden" id="actionInput" name="action" required />
+        <h3>Apply points</h3>
+        <p id="target-student">Student</p>
+        <div class="action-block">
+          <div class="row" style="justify-content: space-between; align-items: center;">
+            <h4 style="margin: 0;">+ Points</h4>
+            {% if positive_custom_count < 5 %}
+              <button
+                type="button"
+                class="secondary add-icon-btn"
+                data-delta="1"
+              >+ Add icon</button>
+            {% else %}
+              <button
+                type="button"
+                class="secondary add-icon-btn"
+                disabled
+              >+ Add icon (max 5)</button>
+            {% endif %}
+          </div>
+          <div class="action-grid">
+            {% for action in positive_actions %}
+              <button
+                type="button"
+                class="action-btn action-positive"
+                data-action="{{ action[0] }}"
+                data-label="{{ action[1] }}"
+              >
+                <span class="icon">{{ action[3] }}</span>
+                <span class="label">{{ action[1] }}</span>
+              </button>
+            {% endfor %}
+            {% for action in positive_custom_actions %}
+              <button
+                type="button"
+                class="action-btn action-positive"
+                data-action="{{ action['action_key'] }}"
+                data-label="{{ action['label'] }}"
+              >
+                <span class="icon">{{ action['icon'] }}</span>
+                <span class="label">{{ action['label'] }}</span>
+              </button>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="action-block">
+          <div class="row" style="justify-content: space-between; align-items: center;">
+            <h4 style="margin: 0;">- Points</h4>
+            {% if needs_work_custom_count < 5 %}
+              <button
+                type="button"
+                class="secondary add-icon-btn"
+                data-delta="-1"
+              >+ Add icon</button>
+            {% else %}
+              <button
+                type="button"
+                class="secondary add-icon-btn"
+                disabled
+              >+ Add icon (max 5)</button>
+            {% endif %}
+          </div>
+          <div class="action-grid">
+            {% for action in needs_work_actions %}
+              <button
+                type="button"
+                class="action-btn action-negative"
+                data-action="{{ action[0] }}"
+                data-label="{{ action[1] }}"
+              >
+                <span class="icon">{{ action[3] }}</span>
+                <span class="label">{{ action[1] }}</span>
+              </button>
+            {% endfor %}
+            {% for action in needs_work_custom_actions %}
+              <button
+                type="button"
+                class="action-btn action-negative"
+                data-action="{{ action['action_key'] }}"
+                data-label="{{ action['label'] }}"
+              >
+                <span class="icon">{{ action['icon'] }}</span>
+                <span class="label">{{ action['label'] }}</span>
+              </button>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="row" style="margin-top: 14px">
+          <button type="button" id="cancelPointsDialog">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="addActionDialog">
+      <form id="addActionForm" method="post" action="{{ url_for('add_action') }}" class="points-form" style="margin: 0;">
+        <h3>Add custom icon</h3>
+        <p id="newActionSign"></p>
+
+        <label for="newActionLabel">Label</label>
+        <input id="newActionLabel" name="label" required maxlength="24" />
+
+        <label for="newActionDelta">Points change</label>
+        <select id="newActionDelta" name="delta" required>
+          {% for value in range(1, 6) %}
+            <option value="{{ value }}">+{{ value }}</option>
+          {% endfor %}
+          {% for value in range(1, 6) %}
+            <option value="{{ -value }}">-{{ value }}</option>
+          {% endfor %}
+        </select>
+
+        <label>Choose icon</label>
+        <div class="icon-choice-grid">
+          {% for icon in icon_choices %}
+            <button
+              type="button"
+              class="icon-choice"
+              data-icon="{{ icon }}"
+            >{{ icon }}</button>
+          {% endfor %}
+        </div>
+        <input type="hidden" id="newActionIcon" name="icon" required />
+
+        <div class="row" style="margin-top: 14px">
+          <button type="submit" class="secondary">Save icon</button>
+          <button type="button" id="cancelAddActionDialog">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script>
+      (function () {
+        const dialog = document.getElementById('pointsDialog');
+        const form = document.getElementById('pointsForm');
+        const target = document.getElementById('target-student');
+        const cancelBtn = document.getElementById('cancelPointsDialog');
+        const actionInput = document.getElementById('actionInput');
+        const openButtons = document.querySelectorAll('.open-points');
+        const actionButtons = document.querySelectorAll('.action-btn');
+        const addButtons = document.querySelectorAll('.add-icon-btn');
+        const addDialog = document.getElementById('addActionDialog');
+        const addDialogDelta = document.getElementById('newActionDelta');
+        const addDialogSignText = document.getElementById('newActionSign');
+        const addDialogCancel = document.getElementById('cancelAddActionDialog');
+        const addDialogForm = document.getElementById('addActionForm');
+        const addDialogIconInput = document.getElementById('newActionIcon');
+        const iconChoices = document.querySelectorAll('.icon-choice');
+        const hasWebAudio = !!(window.AudioContext || window.webkitAudioContext);
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        const audioContext = hasWebAudio ? new AudioContextClass() : null;
+
+        const resumeContext = async () => {
+          if (audioContext && audioContext.state === 'suspended') {
+            await audioContext.resume();
+          }
+        };
+
+        const playTone = async (frequency, durationMs = 120, volume = 0.06) => {
+          if (!audioContext) {
+            return;
+          }
+
+          await resumeContext();
+
+          const oscillator = audioContext.createOscillator();
+          const gain = audioContext.createGain();
+          oscillator.type = 'triangle';
+          oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+          gain.gain.setValueAtTime(volume, audioContext.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + durationMs / 1000);
+          oscillator.connect(gain);
+          gain.connect(audioContext.destination);
+          oscillator.start();
+          oscillator.stop(audioContext.currentTime + durationMs / 1000);
+        };
+
+        openButtons.forEach((button) => {
+          button.addEventListener('click', () => {
+            button.classList.add('pressed');
+            setTimeout(() => button.classList.remove('pressed'), 140);
+            void playTone(480, 70, 0.05);
+            const studentId = button.dataset.studentId;
+            const studentName = button.dataset.studentName;
+            target.textContent = `Apply points for ${studentName}`;
+            form.action = `/students/${studentId}/points`;
+            dialog.showModal();
+          });
+        });
+
+        addButtons.forEach((button) => {
+          button.addEventListener('click', async () => {
+            if (button.disabled) {
+              return;
+            }
+            const delta = button.dataset.delta;
+            addDialogDelta.value = delta;
+            addDialogIconInput.value = '';
+            iconChoices.forEach((choice) => choice.classList.remove('selected'));
+            addDialogSignText.textContent = `Add custom action icon (${delta === '1' ? '+1' : '-1'})`;
+            await playTone(520, 70, 0.05);
+            addDialog.showModal();
+          });
+        });
+
+        iconChoices.forEach((choice) => {
+          choice.addEventListener('click', () => {
+            iconChoices.forEach((item) => item.classList.remove('selected'));
+            choice.classList.add('selected');
+            addDialogIconInput.value = choice.dataset.icon;
+          });
+        });
+
+        addDialogForm.addEventListener('submit', (event) => {
+          if (!addDialogIconInput.value) {
+            event.preventDefault();
+            alert('Please pick an icon.');
+            return;
+          }
+        });
+
+        actionButtons.forEach((button) => {
+          button.addEventListener('click', async () => {
+            actionInput.value = button.dataset.action;
+            button.classList.add('is-pressed');
+            const isNegative = button.classList.contains('action-negative');
+            await playTone(isNegative ? 220 : 740, 100, 0.08);
+            setTimeout(() => {
+              button.classList.remove('is-pressed');
+              form.submit();
+            }, 100);
+          });
+        });
+
+        cancelBtn.addEventListener('click', () => dialog.close());
+        addDialogCancel.addEventListener('click', () => addDialog.close());
+      })();
+    </script>
+  {% else %}
+    <h2>My points</h2>
+    <p>Your current score: <strong>{{ user['points'] }}</strong></p>
+    <p>Only teachers can assign points.</p>
+
+    <h2>Points history</h2>
+    {% if points_history %}
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Teacher</th>
+            <th>Action</th>
+            <th>Change</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in points_history %}
+            <tr>
+              <td>{{ item['created_at'] }}</td>
+              <td>{{ item['teacher_name'] }}</td>
+              <td>{{ item['action_label'] }}</td>
+              <td>{{ item['points_delta'] }}</td>
+              <td>{{ item['points_after'] }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>No point history yet.</p>
+    {% endif %}
+  {% endif %}
+{% endblock %}

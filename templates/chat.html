@@ -1,0 +1,153 @@
+{% extends 'base.html' %}
+{% block content %}
+  <h1>School Chat</h1>
+  <p>Send messages in real time with your assigned {{ partner_type | lower }}.</p>
+
+  <div class="chat-grid">
+    <aside class="chat-sidebar">
+      <h2>Conversations</h2>
+      <div class="chat-list">
+        {% if threads %}
+          {% for thread in threads %}
+            <a
+              href="{{ url_for('chat', thread_id=thread['id']) }}"
+              class="chat-item {% if selected_thread and selected_thread['id'] == thread['id'] %}active{% endif %}"
+            >
+              <div class="chat-item-title">{{ thread['partner_name'] }}</div>
+              <div class="chat-item-sub">
+                {% if thread['last_message'] %}
+                  {{ thread['last_message'] }}
+                {% else %}
+                  No messages yet
+                {% endif %}
+              </div>
+            </a>
+          {% endfor %}
+        {% else %}
+          <p style="opacity: 0.8;">No active chat yet.</p>
+        {% endif %}
+      </div>
+
+      <h3>Start new with {{ partner_type }}</h3>
+      <div class="chat-list">
+        {% for partner in partner_pool %}
+          <a
+            href="{{ url_for('chat', partner_id=partner['id']) }}"
+            class="chat-item"
+          >
+            <div class="chat-item-title">{{ partner['username'] }}</div>
+            {% if partner['phone_number'] %}
+              <div class="chat-item-sub">{{ partner['phone_number'] }}</div>
+            {% endif %}
+          </a>
+        {% else %}
+          <p style="opacity: 0.8;">No users available.</p>
+        {% endfor %}
+      </div>
+    </aside>
+
+    <section class="chat-main">
+      {% if selected_thread %}
+        <div class="chat-window" id="chatWindow">
+          <div class="message-list" id="messageList">
+            {% for message in messages %}
+              <div
+                class="message {{ 'me' if message['sender_id'] == user['id'] else 'other' }}"
+                data-id="{{ message['id'] }}"
+              >
+                <div class="message-meta">{{ message['sender_name'] }} · {{ message['created_at'] }}</div>
+                <div class="message-body">{{ message['message'] }}</div>
+              </div>
+            {% endfor %}
+            {% if not messages %}
+              <p class="no-messages">No messages yet. Send the first one.</p>
+            {% endif %}
+          </div>
+
+          <form class="chat-input-row" method="post" action="{{ url_for('chat_send') }}">
+            <input type="hidden" name="thread_id" value="{{ selected_thread['id'] }}" />
+            <input
+              type="text"
+              name="message"
+              id="messageInput"
+              placeholder="Write your message"
+              autocomplete="off"
+              required
+              maxlength="600"
+            />
+            <button type="submit">Send</button>
+          </form>
+        </div>
+      {% else %}
+        <p>Select or start a conversation to begin chatting.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  {% if selected_thread %}
+    <script>
+      (function () {
+        const messageList = document.getElementById('messageList');
+        const messageInput = document.getElementById('messageInput');
+        const messageForm = messageList?.closest('.chat-main')?.querySelector('form');
+        const threadId = Number('{{ selected_thread["id"] }}');
+        let lastMessageId = Number('{{ last_message_id }}');
+
+        const escapeHtml = (value) => {
+          const div = document.createElement('div');
+          div.textContent = value;
+          return div.innerHTML;
+        };
+
+        const renderMessages = (rows) => {
+          rows.forEach((row) => {
+            const rowEl = document.createElement('div');
+            rowEl.className = `message ${row.sender_id === {{ user['id'] }} ? 'me' : 'other'}`;
+            rowEl.dataset.id = row.id;
+            rowEl.innerHTML = `
+              <div class="message-meta">${escapeHtml(row.sender_name)} · ${escapeHtml(row.created_at)}</div>
+              <div class="message-body">${escapeHtml(row.message)}</div>
+            `;
+            messageList.appendChild(rowEl);
+            lastMessageId = row.id;
+          });
+
+          if (rows.length) {
+            messageList.scrollTop = messageList.scrollHeight;
+          }
+        };
+
+        const poll = async () => {
+          try {
+            const response = await fetch(`/chat/messages?thread_id=${threadId}&after_id=${lastMessageId}`);
+            const data = await response.json();
+            if (data.ok && data.messages.length) {
+              renderMessages(data.messages);
+            }
+          } catch (error) {
+            // Intentionally ignore polling errors.
+          }
+        };
+
+        messageForm?.addEventListener('submit', () => {
+          const value = messageInput.value.trim();
+          if (!value) {
+            return;
+          }
+          setTimeout(() => {
+            messageInput.value = '';
+            messageInput.focus();
+          }, 0);
+          if (poll) {
+            setTimeout(poll, 500);
+          }
+        });
+
+        if (messageList) {
+          messageList.scrollTop = messageList.scrollHeight;
+        }
+        setInterval(poll, 2500);
+      })();
+    </script>
+  {% endif %}
+{% endblock %}

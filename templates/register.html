@@ -1,0 +1,27 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+  <h1>Register</h1>
+  <form method="post">
+    <label for="username">Username</label>
+    <input id="username" name="username" required minlength="3" />
+
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" required minlength="4" />
+
+    <label for="role">Role</label>
+    <select id="role" name="role" required>
+      <option value="">Please choose</option>
+      <option value="lehrer">Teacher</option>
+      <option value="schueler">Student</option>
+      <option value="erwachsene">Adult</option>
+    </select>
+    <label for="phone_number">Phone number (required for Adult)</label>
+    <input id="phone_number" name="phone_number" />
+    <p>New accounts start with 0 points. Points are only added manually by teachers.</p>
+
+    <div class="row" style="margin-top: 14px">
+      <button type="submit">Create account</button>
+      <a href="{{ url_for('login') }}">Back to sign in</a>
+    </div>
+  </form>
+{% endblock %}
