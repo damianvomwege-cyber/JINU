@@ -314,9 +314,7 @@
         <div class="links">
           {% if user %}
             <a href="{{ url_for('dashboard') }}">Home</a>
-            {% if user['role'] != 'schueler' %}
-              <a href="{{ url_for('chat') }}">Chat</a>
-            {% endif %}
+            <a href="{{ url_for('chat') }}">Chat</a>
             <a href="{{ url_for('logout') }}">Logout</a>
           {% endif %}
         </div>

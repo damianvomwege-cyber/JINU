@@ -339,8 +339,8 @@ def chat_allowed(view):
         user = current_user()
         if not user:
             return redirect(url_for('login'))
-        if user['role'] not in ('lehrer', 'erwachsene'):
-            flash('Only teachers and adults can access chat.')
+        if user['role'] not in ('lehrer', 'erwachsene', 'schueler'):
+            flash('Only teachers, adults and students can access chat.')
             return redirect(url_for('dashboard'))
         return view(*args, **kwargs)
 
@@ -362,54 +362,34 @@ def _get_chat_thread(db, user, thread_id=None, partner_id=None, create=False):
         return None
 
     if thread_id:
-        if user['role'] == 'lehrer':
-            thread = db.execute(
-                'SELECT id, teacher_id, adult_id FROM chat_threads WHERE id = ? AND teacher_id = ?',
-                (thread_id, user['id']),
-            ).fetchone()
-        else:
-            thread = db.execute(
-                'SELECT id, teacher_id, adult_id FROM chat_threads WHERE id = ? AND adult_id = ?',
-                (thread_id, user['id']),
-            ).fetchone()
+        thread = db.execute(
+            'SELECT id, teacher_id, adult_id FROM chat_threads WHERE id = ? AND (teacher_id = ? OR adult_id = ?)',
+            (thread_id, user['id'], user['id']),
+        ).fetchone()
         return dict(thread) if thread else None
 
-    if user['role'] == 'lehrer':
-        partner = db.execute(
-            'SELECT id FROM users WHERE id = ? AND role = ?',
-            (partner_id, 'erwachsene'),
-        ).fetchone()
-        if not partner:
-            return None
-        thread = db.execute(
-            'SELECT id, teacher_id, adult_id FROM chat_threads WHERE teacher_id = ? AND adult_id = ?',
-            (user['id'], partner_id),
-        ).fetchone()
-        if thread:
-            return dict(thread)
-        if not create:
-            return None
-        now = datetime.utcnow().isoformat()
-        db.execute(
-            'INSERT INTO chat_threads (teacher_id, adult_id, created_at) VALUES (?, ?, ?)',
-            (user['id'], partner_id, now),
-        )
-        thread_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
-        return {
-            'id': thread_id,
-            'teacher_id': user['id'],
-            'adult_id': partner_id,
-        }
-
+    allowed_roles_for_partner = ['schueler', 'erwachsene'] if user['role'] == 'lehrer' else ['lehrer']
     partner = db.execute(
-        'SELECT id FROM users WHERE id = ? AND role = ?',
-        (partner_id, 'lehrer'),
+        '''
+        SELECT id
+        FROM users
+        WHERE id = ? AND role IN ({roles})
+        '''.format(roles=','.join('?' * len(allowed_roles_for_partner))),
+        (partner_id, *allowed_roles_for_partner),
     ).fetchone()
     if not partner:
         return None
+
     thread = db.execute(
-        'SELECT id, teacher_id, adult_id FROM chat_threads WHERE teacher_id = ? AND adult_id = ?',
-        (partner_id, user['id']),
+        '''
+        SELECT id, teacher_id, adult_id
+        FROM chat_threads
+        WHERE (teacher_id = ? AND adult_id = ?) OR (teacher_id = ? AND adult_id = ?)
+        ''',
+        (user['role'] == 'lehrer' and user['id'] or partner_id,
+         user['role'] == 'lehrer' and partner_id or user['id'],
+         user['role'] == 'lehrer' and partner_id or user['id'],
+         user['role'] == 'lehrer' and user['id'] or partner_id),
     ).fetchone()
     if thread:
         return dict(thread)
@@ -418,13 +398,15 @@ def _get_chat_thread(db, user, thread_id=None, partner_id=None, create=False):
     now = datetime.utcnow().isoformat()
     db.execute(
         'INSERT INTO chat_threads (teacher_id, adult_id, created_at) VALUES (?, ?, ?)',
-        (partner_id, user['id'], now),
+        (user['id'] if user['role'] == 'lehrer' else partner_id,
+         partner_id if user['role'] == 'lehrer' else user['id'],
+         now),
     )
     thread_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
     return {
         'id': thread_id,
-        'teacher_id': partner_id,
-        'adult_id': user['id'],
+        'teacher_id': user['id'] if user['role'] == 'lehrer' else partner_id,
+        'adult_id': partner_id if user['role'] == 'lehrer' else user['id'],
     }
 
 
@@ -674,7 +656,12 @@ def chat():
             (user['id'],),
         ).fetchall()
         partner_pool = db.execute(
-            "SELECT id, username, phone_number FROM users WHERE role = 'erwachsene' ORDER BY username ASC"
+            """
+            SELECT id, username, phone_number, role
+            FROM users
+            WHERE role IN ('erwachsene', 'schueler')
+            ORDER BY username ASC
+            """
         ).fetchall()
     else:
         threads = db.execute(
@@ -729,7 +716,7 @@ def chat():
         selected_thread=selected_thread,
         messages=messages,
         last_message_id=messages[-1]['id'] if messages else 0,
-        partner_type='Adults' if user['role'] == 'lehrer' else 'Teachers',
+        partner_type='Adults/Students' if user['role'] == 'lehrer' else 'Teachers',
     )
 
 
