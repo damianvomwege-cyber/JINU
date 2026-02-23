@@ -368,7 +368,11 @@ def _get_chat_thread(db, user, thread_id=None, partner_id=None, create=False):
         ).fetchone()
         return dict(thread) if thread else None
 
-    allowed_roles_for_partner = ['schueler', 'erwachsene'] if user['role'] == 'lehrer' else ['lehrer']
+    allowed_roles_for_partner = (
+        ['schueler', 'erwachsene', 'lehrer']
+        if user['role'] == 'lehrer'
+        else ['lehrer']
+    )
     partner = db.execute(
         '''
         SELECT id
@@ -386,10 +390,12 @@ def _get_chat_thread(db, user, thread_id=None, partner_id=None, create=False):
         FROM chat_threads
         WHERE (teacher_id = ? AND adult_id = ?) OR (teacher_id = ? AND adult_id = ?)
         ''',
-        (user['role'] == 'lehrer' and user['id'] or partner_id,
-         user['role'] == 'lehrer' and partner_id or user['id'],
-         user['role'] == 'lehrer' and partner_id or user['id'],
-         user['role'] == 'lehrer' and user['id'] or partner_id),
+        (
+            user['id'],
+            partner_id,
+            partner_id,
+            user['id'],
+        ),
     ).fetchone()
     if thread:
         return dict(thread)
@@ -641,27 +647,31 @@ def chat():
                 ct.id,
                 u.id AS partner_id,
                 u.username AS partner_name,
-                u.phone_number AS partner_phone,
                 cm.id AS last_message_id,
                 cm.message AS last_message,
                 cm.created_at AS last_message_at
-            FROM chat_threads ct
-            JOIN users u ON u.id = ct.adult_id
+            FROM (
+                SELECT id, teacher_id, adult_id, created_at FROM chat_threads WHERE teacher_id = :user_id
+                UNION ALL
+                SELECT id, teacher_id, adult_id, created_at FROM chat_threads WHERE adult_id = :user_id
+            ) ct
+            JOIN users u ON u.id = CASE WHEN ct.teacher_id = :user_id THEN ct.adult_id ELSE ct.teacher_id END
             LEFT JOIN chat_messages cm ON cm.id = (
                 SELECT id FROM chat_messages m WHERE m.thread_id = ct.id ORDER BY m.id DESC LIMIT 1
             )
-            WHERE ct.teacher_id = ?
             ORDER BY COALESCE(cm.created_at, ct.created_at) DESC
             ''',
-            (user['id'],),
+            {"user_id": user['id']},
         ).fetchall()
         partner_pool = db.execute(
             """
             SELECT id, username, phone_number, role
             FROM users
-            WHERE role IN ('erwachsene', 'schueler')
+            WHERE role IN ('erwachsene', 'schueler', 'lehrer')
+              AND id != :user_id
             ORDER BY username ASC
-            """
+            """,
+            {"user_id": user['id']},
         ).fetchall()
     else:
         threads = db.execute(
@@ -684,7 +694,8 @@ def chat():
             (user['id'],),
         ).fetchall()
         partner_pool = db.execute(
-            "SELECT id, username FROM users WHERE role = 'lehrer' ORDER BY username ASC"
+            "SELECT id, username FROM users WHERE role = 'lehrer' AND id != ? ORDER BY username ASC",
+            (user['id'],),
         ).fetchall()
 
     requested_thread_id = _parse_thread_id(request.args.get('thread_id'))
