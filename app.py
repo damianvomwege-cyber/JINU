@@ -401,18 +401,22 @@ def _get_chat_thread(db, user, thread_id=None, partner_id=None, create=False):
         return dict(thread)
     if not create:
         return None
+    first_user_id = min(user['id'], partner_id)
+    second_user_id = max(user['id'], partner_id)
     now = datetime.utcnow().isoformat()
     db.execute(
         'INSERT INTO chat_threads (teacher_id, adult_id, created_at) VALUES (?, ?, ?)',
-        (user['id'] if user['role'] == 'lehrer' else partner_id,
-         partner_id if user['role'] == 'lehrer' else user['id'],
-         now),
+        (
+            first_user_id,
+            second_user_id,
+            now,
+        ),
     )
     thread_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
     return {
         'id': thread_id,
-        'teacher_id': user['id'] if user['role'] == 'lehrer' else partner_id,
-        'adult_id': partner_id if user['role'] == 'lehrer' else user['id'],
+        'teacher_id': first_user_id,
+        'adult_id': second_user_id,
     }
 
 
@@ -684,14 +688,14 @@ def chat():
                 cm.message AS last_message,
                 cm.created_at AS last_message_at
             FROM chat_threads ct
-            JOIN users u ON u.id = ct.teacher_id
+            JOIN users u ON u.id = CASE WHEN ct.teacher_id = ? THEN ct.adult_id ELSE ct.teacher_id END
             LEFT JOIN chat_messages cm ON cm.id = (
                 SELECT id FROM chat_messages m WHERE m.thread_id = ct.id ORDER BY m.id DESC LIMIT 1
             )
-            WHERE ct.adult_id = ?
+            WHERE ct.teacher_id = ? OR ct.adult_id = ?
             ORDER BY COALESCE(cm.created_at, ct.created_at) DESC
             ''',
-            (user['id'],),
+            (user['id'], user['id'], user['id']),
         ).fetchall()
         partner_pool = db.execute(
             "SELECT id, username FROM users WHERE role = 'lehrer' AND id != ? ORDER BY username ASC",
