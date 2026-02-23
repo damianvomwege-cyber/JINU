@@ -821,6 +821,51 @@ def chat_send():
     return redirect(url_for('chat', thread_id=thread['id']))
 
 
+@app.route('/chat/delete', methods=['POST'])
+@login_required
+@chat_allowed
+def chat_delete():
+    user = current_user()
+    if not user:
+        return redirect(url_for('login'))
+
+    db = get_db()
+    message_id_raw = request.form.get('message_id')
+    thread_id = _parse_thread_id(request.form.get('thread_id'))
+
+    try:
+        message_id = int(message_id_raw)
+    except (TypeError, ValueError):
+        flash('Invalid message id.')
+        if thread_id:
+            return redirect(url_for('chat', thread_id=thread_id))
+        return redirect(url_for('chat'))
+
+    message = db.execute(
+        'SELECT id, sender_id, thread_id FROM chat_messages WHERE id = ?',
+        (message_id,),
+    ).fetchone()
+    if not message:
+        flash('Message not found.')
+        if thread_id:
+            return redirect(url_for('chat', thread_id=thread_id))
+        return redirect(url_for('chat'))
+
+    if message['sender_id'] != user['id']:
+        flash('You can only delete your own messages.')
+        return redirect(url_for('chat', thread_id=message['thread_id']))
+
+    thread = _get_chat_thread(db, user, thread_id=message['thread_id'])
+    if not thread:
+        flash('Not allowed to remove this message.')
+        return redirect(url_for('chat'))
+
+    db.execute('DELETE FROM chat_messages WHERE id = ?', (message_id,))
+    db.commit()
+    flash('Message deleted.')
+    return redirect(url_for('chat', thread_id=message['thread_id']))
+
+
 @app.route('/students/add', methods=['POST'])
 @teacher_required
 def add_student():
