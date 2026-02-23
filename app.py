@@ -1,6 +1,7 @@
 ﻿from functools import wraps
 from datetime import datetime
 import sqlite3
+import os
 import uuid
 import ipaddress
 from flask import (
@@ -18,8 +19,13 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'change-me'
-app.config['DB_PATH'] = 'app.db'
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'change-me')
+app.config['DB_PATH'] = os.getenv(
+    'DATABASE_PATH',
+    os.path.join('/tmp', 'app.db')
+    if os.getenv('VERCEL') == '1'
+    else os.path.join(os.path.dirname(__file__), 'app.db'),
+)
 ALLOWED_HISTORY_CLEAR_IP = '127.0.0.1'
 ALLOWED_HISTORY_CLEAR_IPS = {'127.0.0.1'}
 ALLOWED_ROLES = ('lehrer', 'schueler', 'erwachsene')
